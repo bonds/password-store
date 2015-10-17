@@ -6,6 +6,19 @@
 umask "${PASSWORD_STORE_UMASK:-077}"
 set -o pipefail
 
+UNAME=`uname`
+if [ $UNAME = OpenBSD ]; then
+    GETOPT="gnugetopt"
+    MKDIR_OPTS='-p'
+    TREE_OPTS='-l -s'
+    RM_OPTS='-f'
+else
+    GETOPT="getopt"
+    MKDIR_OPTS='-v -p'
+    TREE_OPTS='-C -l --noreport'
+    RM_OPTS='-f -v'
+fi
+
 GPG_OPTS=( $PASSWORD_STORE_GPG_OPTS "--quiet" "--yes" "--compress-algo=none" "--no-encrypt-to" )
 GPG="gpg"
 export GPG_TTY="${GPG_TTY:-$(tty 2>/dev/null)}"
@@ -182,7 +195,6 @@ tmpdir() {
 	fi
 
 }
-GETOPT="getopt"
 SHRED="shred -f -z"
 
 source "$(dirname "$0")/platform/$(uname | cut -d _ -f 1 | tr '[:upper:]' '[:lower:]').sh" 2>/dev/null # PLATFORM_FUNCTION_FILE
@@ -282,7 +294,7 @@ cmd_init() {
 		fi
 		rmdir -p "${gpg_id%/*}" 2>/dev/null
 	else
-		mkdir -v -p "$PREFIX/$id_path"
+		mkdir $MKDIR_OPTS "$PREFIX/$id_path"
 		printf "%s\n" "$@" > "$gpg_id"
 		local id_print="$(printf "%s, " "$@")"
 		echo "Password store initialized for ${id_print%, }"
@@ -322,7 +334,7 @@ cmd_show() {
 		else
 			echo "${path%\/}"
 		fi
-		tree -C -l --noreport "$PREFIX/$path" | tail -n +2 | sed -E 's/\.gpg(\x1B\[[0-9]+m)?( ->|$)/\1\2/g' # remove .gpg at end of line, but keep colors
+		tree $TREE_OPTS "$PREFIX/$path" | tail -n +2 | sed -E 's/\.gpg(\x1B\[[0-9]+m)?( ->|$)/\1\2/g' # remove .gpg at end of line, but keep colors
 	elif [[ -z $path ]]; then
 		die "Error: password store is empty. Try \"pass init\"."
 	else
@@ -334,7 +346,7 @@ cmd_find() {
 	[[ -z "$@" ]] && die "Usage: $PROGRAM $COMMAND pass-names..."
 	IFS="," eval 'echo "Search Terms: $*"'
 	local terms="*$(printf '%s*|*' "$@")"
-	tree -C -l --noreport -P "${terms%|*}" --prune --matchdirs --ignore-case "$PREFIX" | tail -n +2 | sed -E 's/\.gpg(\x1B\[[0-9]+m)?( ->|$)/\1\2/g'
+	tree $TREE_OPTS -P "${terms%|*}" --prune --matchdirs --ignore-case "$PREFIX" | tail -n +2 | sed -E 's/\.gpg(\x1B\[[0-9]+m)?( ->|$)/\1\2/g'
 }
 
 cmd_grep() {
@@ -372,7 +384,7 @@ cmd_insert() {
 
 	[[ $force -eq 0 && -e $passfile ]] && yesno "An entry already exists for $path. Overwrite it?"
 
-	mkdir -p -v "$PREFIX/$(dirname "$path")"
+	mkdir $MKDIR_OPTS "$PREFIX/$(dirname "$path")"
 	set_gpg_recipients "$(dirname "$path")"
 
 	if [[ $multiline -eq 1 ]]; then
@@ -406,7 +418,7 @@ cmd_edit() {
 
 	local path="$1"
 	check_sneaky_paths "$path"
-	mkdir -p -v "$PREFIX/$(dirname "$path")"
+	mkdir $MKDIR_OPTS "$PREFIX/$(dirname "$path")"
 	set_gpg_recipients "$(dirname "$path")"
 	local passfile="$PREFIX/$path.gpg"
 
@@ -446,7 +458,7 @@ cmd_generate() {
 	local length="$2"
 	check_sneaky_paths "$path"
 	[[ ! $length =~ ^[0-9]+$ ]] && die "Error: pass-length \"$length\" must be a number."
-	mkdir -p -v "$PREFIX/$(dirname "$path")"
+	mkdir $MKDIR_OPTS "$PREFIX/$(dirname "$path")"
 	set_gpg_recipients "$(dirname "$path")"
 	local passfile="$PREFIX/$path.gpg"
 
@@ -498,7 +510,7 @@ cmd_delete() {
 
 	[[ $force -eq 1 ]] || yesno "Are you sure you would like to delete $path?"
 
-	rm $recursive -f -v "$passfile"
+	rm $recursive $RM_OPTS "$passfile"
 	if [[ -d $GIT_DIR && ! -e $passfile ]]; then
 		git rm -qr "$passfile"
 		git_commit "Remove $path from store."
@@ -529,7 +541,7 @@ cmd_copy_move() {
 		[[ ! -f $old_path ]] && die "Error: $1 is not in the password store."
 	fi
 
-	mkdir -p -v "${new_path%/*}"
+	mkdir $MKDIR_OPTS "${new_path%/*}"
 	[[ -d $old_path || -d $new_path || $new_path =~ /$ ]] || new_path="${new_path}.gpg"
 
 	local interactive="-i"
